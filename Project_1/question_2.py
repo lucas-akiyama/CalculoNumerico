@@ -108,7 +108,7 @@ MAX_ITERACOES = 50
 
 # Raízes verdadeiras para cálculo do erro final
 raiz_f1_verdadeira = 2.0
-raiz_f2_verdadeira = 1.557145598997603
+raiz_f2_verdadeira = 1.207940047136
 
 resultados = {}
 

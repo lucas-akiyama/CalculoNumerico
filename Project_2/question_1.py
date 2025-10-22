@@ -4,268 +4,249 @@ import time
 from numpy.typing import NDArray
 from scipy.linalg import lu
 
-# --- Funções para os métodos ---
 
-def cramer(A: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
-    """
-    Resolve um sistema linear de equações utilizando a Regra de Cramer.
-
-    Este método calcula as soluções do sistema A·x = b, onde A é uma matriz
-    quadrada e b é o vetor de termos independentes. Ele substitui cada coluna
-    de A pelo vetor b, calcula o determinante e aplica a fórmula de Cramer
-    para encontrar as incógnitas.
-
-    Args:
-        A (numpy.ndarray): Matriz dos coeficientes do sistema (n x n).
-        b (numpy.ndarray): Vetor dos termos independentes (n,).
-
-    Returns:
-        numpy.ndarray: Vetor solução x do sistema (n,), contendo os valores
-        das incógnitas.
-
-    Raises:
-        numpy.linalg.LinAlgError: Se o determinante de A for zero, indicando
-        que o sistema não possui solução única.
-    """
+def cramer(A: NDArray[np.float64], b: NDArray[np.float64]):
     n = len(b)
     detA = np.linalg.det(A)
-    if np.isclose(detA, 0, 0):
-        raise np.linalg.LinAlgError("O sistema não possui solução única. (determinante = 0)")
+    if np.isclose(detA, 0):
+        raise np.linalg.LinAlgError("O sistema não possui solução única (detA = 0).")
+
     x = np.zeros(n, dtype=float)
+    n_flops_cramer = (n + 1) * (2 / 3 * n ** 3 + n ** 2)
+
     for i in range(n):
         Ai = np.copy(A)
         Ai[:, i] = b
         x[i] = np.linalg.det(Ai) / detA
-    return x
 
-def gauss_elimination(A: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
-    """
-    Resolve um sistema linear de equações utilizando o método de eliminação de Gauss
-    (com pivoteamento parcial).
+    return x, n_flops_cramer
 
-    O algoritmo transforma a matriz aumentada [A|b] em uma forma triangular superior
-    por meio de operações elementares nas linhas. Em seguida, aplica retro-substituição
-    para determinar o vetor solução x.
 
-    Args:
-        A (numpy.ndarray): Matriz dos coeficientes do sistema (n x n).
-        b (numpy.ndarray): Vetor dos termos independentes (n,).
-
-    Returns:
-        numpy.ndarray: Vetor solução x do sistema (n,), contendo os valores
-        das incógnitas.
-
-    Raises:
-        ValueError: Se A não for uma matriz quadrada ou se b não tiver
-        dimensão compatível.
-        numpy.linalg.LinAlgError: Se o sistema for singular (possuir
-        pivô igual a zero durante o processo).
-    """
-    if A.shape[0] != A.shape[1]:
-        raise ValueError("A matriz A deve ser quadrada.")
-    if len(b) != A.shape[0]:
-        raise ValueError("O vetor b deve ter o mesmo número de linhas que A")
+def gauss_elimination(A: NDArray[np.float64], b: NDArray[np.float64]):
+    if A.shape[0] != A.shape[1] or len(b) != A.shape[0]:
+        raise ValueError("Dimensões incompatíveis.")
 
     n = len(b)
     Ab = np.hstack([A.astype(float), b.reshape(-1, 1)])
+    n_flops = (2 / 3 * n ** 3) + (n ** 2)
     for i in range(n):
         max_row = np.argmax(abs(Ab[i:, i])) + i
         if np.isclose(Ab[max_row, i], 0.0):
             raise np.linalg.LinAlgError("O sistema é singular (pivô nulo)")
         Ab[[i, max_row]] = Ab[[max_row, i]]
         Ab[i] = Ab[i] / Ab[i, i]
-        for j in range(i+1, n):
+        for j in range(i + 1, n):
             Ab[j] -= Ab[i] * Ab[j, i]
 
     x = np.zeros(n, dtype=float)
-    for i in range(n-1, -1, -1):
-        x[i] = Ab[i, -1] - np.sum(Ab[i, i+1:n] * x[i+1:n])
-    return x
+    for i in range(n - 1, -1, -1):
+        x[i] = Ab[i, -1] - np.sum(Ab[i, i + 1:n] * x[i + 1:n])
 
-def lu_decomposition(A: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
-    """
-    Resolve um sistema linear de equações A·x = b utilizando a Decomposição LU.
+    return x, n_flops
 
-    Args:
-        A (numpy.ndarray): Matriz dos coeficientes do sistema (n x n).
-        b (numpy.ndarray): Vetor dos termos independentes (n,).
 
-    Returns:
-        numpy.ndarray: Vetor solução x do sistema (n,), contendo os valores
-        das incógnitas.
+def lu_decomposition(A: NDArray[np.float64], b: NDArray[np.float64]):
+    if A.shape[0] != A.shape[1] or len(b) != A.shape[0]:
+        raise ValueError("Dimensões incompatíveis.")
 
-    Raises:
-        ValueError: Se A não for uma matriz quadrada ou se b não tiver
-        dimensão compatível.
-        numpy.linalg.LinAlgError: Se o sistema for singular (determinante nulo).
-    """
-    if A.shape[0] != A.shape[1]:
-        raise ValueError("A matriz A deve ser quadrada.")
-    if len(b) != A.shape[0]:
-        raise ValueError("O vetor b deve ter o mesmo número de linhas que A.")
-    if np.isclose(np.linalg.det(A), 0.0):
-        raise np.linalg.LinAlgError("O sistema é singular (determinante nulo).")
+    n = len(b)
+    n_flops = (2 / 3 * n ** 3) + (2 * n ** 2)
+
     P, L, U = lu(A)
     y = np.linalg.solve(L, P @ b)
     x = np.linalg.solve(U, y)
-    return x
+
+    return x, n_flops
+
 
 def jacobi(
-    A: NDArray[np.float64],
-    b: NDArray[np.float64],
-    tol: float = 1e-10,
-    max_iter: int = 1000
-) -> NDArray[np.float64]:
-    """
-    Resolve o sistema linear A·x = b utilizando o método iterativo de Jacobi.
-
-    O método de Jacobi é um algoritmo iterativo para resolver sistemas lineares
-    diagonais dominantes. Ele parte de uma estimativa inicial (geralmente x = 0)
-    e atualiza cada componente de x de forma independente em cada iteração.
-
-    A convergência é garantida se a matriz A for **diagonalmente dominante** ou
-    **simétrica definida positiva**.
-
-    Args:
-        A (numpy.ndarray): Matriz dos coeficientes do sistema (n x n).
-        b (numpy.ndarray): Vetor dos termos independentes (n,).
-        tol (float, opcional): Tolerância para o critério de parada.
-            Iterações param quando ||x_new - x|| < tol. Padrão: 1e-10.
-        max_iter (int, opcional): Número máximo de iterações permitidas.
-            Padrão: 1000.
-
-    Returns:
-        numpy.ndarray: Vetor solução aproximada x do sistema (n,).
-
-    Raises:
-        ValueError: Se A não for uma matriz quadrada, se b tiver tamanho incompatível
-        ou se algum elemento da diagonal de A for zero.
-        np.linalg.LinAlgError: Se o método não convergir dentro do limite de iterações.
-    """
-    if A.shape[0] != A.shape[1]:
-        raise ValueError("A matriz A deve ser quadrada.")
-    if len(b) != A.shape[0]:
-        raise ValueError("O vetor b deve ter o mesmo número de linhas que A.")
+        A: NDArray[np.float64],
+        b: NDArray[np.float64],
+        tol: float = 1e-10,
+        max_iter: int = 1000
+):
     D = np.diag(A)
     if np.any(D == 0):
-        raise ValueError(
-            "A matriz A possui elementos nulos na diagonal (divisão por zero).")
+        raise ValueError("A matriz A possui elementos nulos na diagonal.")
 
     n = len(b)
     x = np.zeros(n)
     R = A - np.diagflat(D)
-    for _ in range(max_iter):
+
+    for k in range(max_iter):
         x_new = (b - np.dot(R, x)) / D
         if np.linalg.norm(x_new - x) < tol:
-            return x_new
+            return x_new, k + 1
         x = x_new
-    raise np.linalg.LinAlgError("O método de Jacobi não convergiu dentro do número máximo de iterações.")
+
+    raise np.linalg.LinAlgError("O método de Jacobi não convergiu.")
+
 
 def gauss_seidel(
-    A: NDArray[np.float64],
-    b: NDArray[np.float64],
-    tol: float = 1e-10,
-    max_iter: int = 1000
-) -> NDArray[np.float64]:
-    """
-    Resolve o sistema linear A·x = b utilizando o método iterativo de Gauss-Seidel.
-
-    O método de Gauss-Seidel é uma variação do método de Jacobi, onde as atualizações
-    de cada componente de x são imediatamente utilizadas nas próximas iterações da mesma
-    passagem. Isso geralmente melhora a velocidade de convergência em relação ao Jacobi.
-
-    A convergência é garantida se a matriz A for **diagonalmente dominante** ou
-    **simétrica definida positiva**.
-
-    Args:
-        A (numpy.ndarray): Matriz dos coeficientes do sistema (n x n).
-        b (numpy.ndarray): Vetor dos termos independentes (n,).
-        tol (float, opcional): Tolerância para o critério de parada.
-            Iterações param quando ||x_new - x|| < tol. Padrão: 1e-10.
-        max_iter (int, opcional): Número máximo de iterações permitidas.
-            Padrão: 1000.
-
-    Returns:
-        numpy.ndarray: Vetor solução aproximada x do sistema (n,).
-
-    Raises:
-        ValueError: Se A não for quadrada, se b tiver tamanho incompatível
-            ou se houver elementos nulos na diagonal de A.
-        np.linalg.LinAlgError: Se o método não convergir dentro do número máximo de iterações.
-    """
-    if A.shape[0] != A.shape[1]:
-        raise ValueError("A matriz A deve ser quadrada.")
-    if len(b) != A.shape[0]:
-        raise ValueError("O vetor b deve ter o mesmo número de linhas que A.")
+        A: NDArray[np.float64],
+        b: NDArray[np.float64],
+        tol: float = 1e-10,
+        max_iter: int = 1000
+):
     if np.any(np.diag(A) == 0):
-        raise ValueError(
-            "A matriz A possui elementos nulos na diagonal (divisão por zero).")
+        raise ValueError("A matriz A possui elementos nulos na diagonal.")
 
     n = len(b)
     x = np.zeros_like(b, dtype=float)
-    for _ in range(max_iter):
+
+    for k in range(max_iter):
         x_new = np.copy(x)
         for i in range(n):
-            sum1 = np.dot(A[i, :i], x_new[:i])
-            sum2 = np.dot(A[i, i+1:], x[i+1:])
-            x_new[i] = (b[i] - sum1 - sum2) / A[i, i]
+            sum_known = np.dot(A[i, :i], x_new[:i])
+            sum_old = np.dot(A[i, i + 1:], x[i + 1:])
+            x_new[i] = (b[i] - sum_known - sum_old) / A[i, i]
 
         if np.linalg.norm(x_new - x) < tol:
-            return x_new
+            return x_new, k + 1
         x = x_new
 
-    raise np.linalg.LinAlgError(
-        "O método de Gauss-Seidel não convergiu dentro do número máximo de iterações.")
+    raise np.linalg.LinAlgError("O método de Gauss-Seidel não convergiu.")
 
-# --- Teste com sistema pequeno (3x3) ---
-A_small = np.array([[3, -1, 1], [-2, 4, 0], [1, 1, 5]], dtype=float)
-b_small = np.array([5, 6, -4], dtype=float)
 
-# --- Teste com sistema grande (10x10) ---
-A_large = (np.array([
-    [13.3362, -0.1222, 0.7172, 0.3947, -0.8116, 0.9512, 0.5223, 0.5721, -0.7438, -0.0992],
-    [-0.2584, 10.3762, 0.2877, 0.6455, -0.1132, -0.5455, 0.1092, -0.8724, 0.6553, 0.2633],
-    [ 0.5162, -0.2909, 12.9933, 0.7862, 0.5568, -0.6107, -0.0666, -0.9124, -0.6914, 0.3661],
-    [ 0.4895, 0.935 , -0.3483, 11.3235, -0.0609, -0.6211, -0.7402, -0.0486, -0.5462, 0.3396],
-    [-0.1257, 0.6654, 0.4005, -0.3753, 10.7756, 0.6095, -0.225 , -0.4233, 0.365 , -0.7205],
-    [-0.6002, -0.9853, 0.5738, 0.3297, 0.4103, 12.5258, -0.0822, 0.1375, -0.7204, -0.7709],
-    [ 0.3368, -0.0578, 0.1305, 0.53 , 0.2694, 0.1072, 8.2218, -0.3921, -0.9384, -0.1266],
-    [-0.5708, -0.1829, 0.7068, -0.5321, -0.8834, -0.4372, -0.4128, 12.02 , 0.1141, 0.5678],
-    [ 0.3286, -0.1872, 0.628 , -0.6661, -0.9546, -0.8199, 0.4447, -0.0762, 11.2687, 0.0021],
-    [-0.6954, 0.3926, -0.1077, -0.238 , -0.397 , 0.2606, -0.2764, -0.8247, -0.764 , 10.8907]
-]) * 10)
-b_large = np.array([ 8.1716, 3.9941, -4.6826, 9.3835, 5.575 , 4.3378, -1.0128, -4.5552, -8.0722, 8.052 ]) * 10
+def estabilidade_numerica(A):
+    return np.linalg.cond(A)
 
-# --- Avaliar tempo e erro ---
-metodos = {
-    'Cramer (3x3)': (cramer, A_small, b_small),
-    'Gauss': (gauss_elimination, A_small, b_small),
-    'LU': (lu_decomposition, A_small, b_small),
-    'Jacobi (10x10)': (jacobi, A_large, b_large),
-    'Gauss-Seidel (10x10)': (gauss_seidel, A_large, b_large)
+
+# ----------------- EXECUÇÃO DA COMPARAÇÃO REFINADA -----------------
+
+# Usando a matriz de 10x10 que é diagonalmente dominante (boa para iterativos)
+A_ref = np.array([
+    [133.362, -1.222, 7.172, 3.947, -8.116, 9.512, 5.223, 5.721, -7.438, -0.992],
+    [-2.584, 103.762, 2.877, 6.455, -1.132, -5.455, 1.092, -8.724, 6.553, 2.633],
+    [5.162, -2.909, 129.933, 7.862, 5.568, -6.107, -0.666, -9.124, -6.914, 3.661],
+    [4.895, 9.35, -3.483, 113.235, -0.609, -6.211, -7.402, -0.486, -5.462, 3.396],
+    [-1.257, 6.654, 4.005, -3.753, 107.756, 6.095, -2.25, -4.233, 3.65, -7.205],
+    [-6.002, -9.853, 5.738, 3.297, 4.103, 125.258, -0.822, 1.375, -7.204, -7.709],
+    [3.368, -0.578, 1.305, 5.3, 2.694, 1.072, 82.218, -3.921, -9.384, -1.266],
+    [-5.708, -1.829, 7.068, -5.321, -8.834, -4.372, -4.128, 120.2, 1.141, 5.678],
+    [3.286, -1.872, 6.28, -6.661, -9.546, -8.199, 4.447, -0.762, 112.687, 0.021],
+    [-6.954, 3.926, -1.077, -2.38, -3.97, 2.606, -2.764, -8.247, -7.64, 108.907]
+], dtype=float)
+b_ref = np.array(
+    [81.716, 39.941, -46.826, 93.835, 55.75, 43.378, -10.128, -45.552, -80.722, 80.52],
+    dtype=float)
+
+n_dim = A_ref.shape[0]
+x_real = np.linalg.solve(A_ref, b_ref)
+cond_A = estabilidade_numerica(A_ref)
+
+print(f"Dimensão do Sistema: n = {n_dim}")
+print(f"Número de Condicionamento ($\kappa(A)$): {cond_A:.2e} (Estabilidade do Problema)")
+
+# Dicionários para armazenar resultados
+tempos = {}
+erros = {}
+metricas_custo = {}  # FLOPs (Diretos) ou Iterações (Iterativos)
+categorias = {}
+
+metodos_ref = {
+    # Cramer é mantido para n=10, mas espera-se um FLOPs alto
+    'Cramer': (cramer, A_ref, b_ref, 'Direto'),
+    'Eliminação de Gauss': (gauss_elimination, A_ref, b_ref, 'Direto'),
+    'Decomposição LU': (lu_decomposition, A_ref, b_ref, 'Direto'),
+    'Jacobi': (jacobi, A_ref, b_ref, 'Iterativo'),
+    'Gauss-Seidel': (gauss_seidel, A_ref, b_ref, 'Iterativo')
 }
 
-tempos = []
-erros = []
+for nome, (func, A, b, categoria) in metodos_ref.items():
+    try:
+        inicio = time.time()
+        x_calc, n_cost = func(A, b)
+        fim = time.time()
 
-for nome, (func, A, b) in metodos.items():
-    inicio = time.time()
-    x = func(A, b)
-    fim = time.time()
-    x_real = np.linalg.solve(A, b)
-    erro = np.linalg.norm(x - x_real)
-    tempos.append(fim - inicio)
-    erros.append(erro)
+        erro_norma = np.linalg.norm(x_calc - x_real)
 
-# --- Gráfico comparativo ---
-plt.figure(figsize=(10, 5))
-plt.subplot(1, 2, 1)
-plt.bar(metodos.keys(), tempos)
-plt.xticks(rotation=45, ha='right')
-plt.title('Tempo de Execução (s)')
-plt.subplot(1, 2, 2)
-plt.bar(metodos.keys(), erros)
-plt.xticks(rotation=45, ha='right')
-plt.title('Erro Numérico (norma)')
-plt.tight_layout()
-plt.show()
+        tempos[nome] = fim - inicio
+        erros[nome] = erro_norma
+        metricas_custo[nome] = n_cost
+        categorias[nome] = categoria
+
+    except Exception as e:
+        print(f"Erro ao executar {nome}: {e}")
+
+# Separação dos dados
+dados_diretos = {
+    'nomes': [n for n in metodos_ref if categorias.get(n) == 'Direto' and n in tempos],
+    'tempos': [tempos[n] for n in metodos_ref if
+               categorias.get(n) == 'Direto' and n in tempos],
+    'erros': [erros[n] for n in metodos_ref if
+              categorias.get(n) == 'Direto' and n in tempos],
+    'custo': [metricas_custo[n] for n in metodos_ref if
+              categorias.get(n) == 'Direto' and n in tempos],
+}
+
+dados_iterativos = {
+    'nomes': [n for n in metodos_ref if categorias.get(n) == 'Iterativo' and n in tempos],
+    'tempos': [tempos[n] for n in metodos_ref if
+               categorias.get(n) == 'Iterativo' and n in tempos],
+    'erros': [erros[n] for n in metodos_ref if
+              categorias.get(n) == 'Iterativo' and n in tempos],
+    'custo': [metricas_custo[n] for n in metodos_ref if
+              categorias.get(n) == 'Iterativo' and n in tempos],
+}
+
+
+# ----------------- Geração dos Gráficos Separados -----------------
+
+def plot_comparacao(dados, titulo_sufixo, custo_label, color):
+    """Função auxiliar para plotar os 3 gráficos para um grupo de métodos."""
+
+    nomes = dados['nomes']
+
+    if not nomes:
+        print(f"Nenhum dado disponível para {titulo_sufixo}.")
+        return
+
+    plt.figure(figsize=(18, 5))
+    plt.suptitle(f'Comparação de Métodos {titulo_sufixo} (n={n_dim})', fontsize=16)
+
+    # 1. Tempo de Execução
+    plt.subplot(1, 3, 1)
+    plt.bar(nomes, dados['tempos'], color=color)
+    plt.xticks(rotation=45, ha='right')
+    plt.yscale('log')
+    plt.title('Tempo de Execução (s) - Escala Logarítmica')
+    plt.ylabel('Tempo (s)')
+
+    # 2. Erro Numérico
+    plt.subplot(1, 3, 2)
+    plt.bar(nomes, dados['erros'], color=color)
+    plt.xticks(rotation=45, ha='right')
+    plt.yscale('log')
+    plt.title('Erro Numérico (Norma Euclidiana) - Escala Logarítmica')
+    plt.ylabel(r'$\left\|\mathbf{x} - \mathbf{x}_{\text{ref}}\right\|_2$')
+
+    # 3. Métrica de Custo (FLOPs ou Iterações)
+    plt.subplot(1, 3, 3)
+    plt.bar(nomes, dados['custo'], color=color)
+    plt.xticks(rotation=45, ha='right')
+    if custo_label == 'Iterações (k)':
+        # Para Iterações, usar escala linear
+        plt.title(f'Custo Computacional: {custo_label}')
+    else:
+        # Para FLOPs, usar escala logarítmica devido à grande magnitude
+        plt.yscale('log')
+        plt.title(f'Custo Computacional: {custo_label} (Log Scale)')
+
+    plt.ylabel(custo_label)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
+
+
+# Plotar Métodos Diretos
+plot_comparacao(dados_diretos,
+                'Diretos (Baseados em Fatoração/Transformação)',
+                'FLOPs (Magnitude)',
+                'skyblue')
+
+# Plotar Métodos Iterativos
+plot_comparacao(dados_iterativos,
+                'Iterativos (Baseados em Aproximações Sucedidas)',
+                'Iterações (k)',
+                'blue')

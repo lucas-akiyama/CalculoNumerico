@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -7,7 +8,9 @@ import matplotlib.pyplot as plt
 # --- 1. Carregar os Dados do Excel ---
 
 # Por favor, substitua pelo caminho correto do seu arquivo
-file_path = 'src/projecoes_2024_tab4_indicadores.xlsx' 
+
+file_path = os.path.join(os.path.dirname(__file__), 'Data/projecoes_2024_tab4_indicadores.xlsx')
+
 
 try:
     df = pd.read_excel(
